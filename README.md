@@ -271,7 +271,7 @@ video_analytics_bot/
 ├── data/
 │   └── videos.json          # Файл с данными (не включён в репозиторий)
 ├── requirements.txt         # Зависимости Python
-├── .env.example             # Шаблон переменных окружения
+├── docker-compose.yml       
 └── README.md                # Этот файл
 ```
 
