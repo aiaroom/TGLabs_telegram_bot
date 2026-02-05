@@ -46,14 +46,13 @@ class YandexGPTClient:
                 return self._extract_sql(raw_sql)
     
     def _build_prompt(self, user_query: str) -> str:
-        """Создание промпта с описанием схемы БД"""
         return f"""Ты — система аналитики видео. Преобразуй вопрос пользователя в ОДИН корректный SQL-запрос на PostgreSQL.
 
 СХЕМА БАЗЫ ДАННЫХ:
 
 Таблица "videos" (итоговая статистика по каждому видео):
 - id (BIGINT) — идентификатор видео
-- creator_id (BIGINT) — идентификатор креатора
+- creator_id (TEXT) — идентификатор креатора (всегда строка в формате UUID, например: '8b76e572635b400c9052286a56176e03')
 - video_created_at (TIMESTAMP) — дата публикации видео
 - views_count (INTEGER) — финальное количество просмотров
 - likes_count (INTEGER) — финальное количество лайков
@@ -73,33 +72,22 @@ class YandexGPTClient:
 - delta_reports_count (INTEGER) — прирост жалоб с прошлого замера
 - created_at (TIMESTAMP) — время замера (раз в час)
 
-ПРАВИЛА ГЕНЕРАЦИИ ЗАПРОСА:
-1. В ответе должен быть ТОЛЬКО один SQL-запрос без лишнего текста
-2. Запрос должен возвращать РОВНО ОДНО ЧИСЛО (через COUNT, SUM, AVG)
-3. Для фильтрации по датам используй: DATE(column) = 'ГГГГ-ММ-ДД' или BETWEEN
-4. "Сколько видео" → используй таблицу videos + COUNT(*)
-5. "На сколько выросло/прирост" → используй таблицу video_snapshots + SUM(delta_*_count)
-6. "Разные видео" → используй COUNT(DISTINCT video_id)
-7. Даты в запросах уже нормализованы в формат ГГГГ-ММ-ДД
+ВАЖНЫЕ ПРАВИЛА:
+1. ВСЕГДА указывай таблицу явно для всех полей:
+   - Для creator_id используй: videos.creator_id
+   - Для времени замеров используй: video_snapshots.created_at
+   - Для даты публикации видео используй: videos.video_created_at
+2. Когда речь идет о "промежутке времени", "часах", "замерах" — ВСЕГДА используй video_snapshots.created_at
+3. creator_id — это СТРОКА, поэтому ВСЕГДА заключай его в одинарные кавычки
+4. В ответе должен быть ТОЛЬКО один SQL-запрос без лишнего текста
+5. Запрос должен возвращать РОВНО ОДНО ЧИСЛО
 
 ПРИМЕРЫ:
 
-Вопрос: "Сколько всего видео есть в системе?"
-SQL: SELECT COUNT(*) FROM videos;
-
-Вопрос: "Сколько видео у креатора с id 123 вышло с 2025-11-01 по 2025-11-05?"
-SQL: SELECT COUNT(*) FROM videos WHERE creator_id = 123 AND DATE(video_created_at) BETWEEN '2025-11-01' AND '2025-11-05';
-
-Вопрос: "Сколько видео набрало больше 100000 просмотров?"
-SQL: SELECT COUNT(*) FROM videos WHERE views_count > 100000;
-
-Вопрос: "На сколько просмотров выросли все видео 2025-11-28?"
-SQL: SELECT SUM(delta_views_count) FROM video_snapshots WHERE DATE(created_at) = '2025-11-28';
-
-Вопрос: "Сколько разных видео получали новые просмотры 2025-11-27?"
-SQL: SELECT COUNT(DISTINCT video_id) FROM video_snapshots WHERE DATE(created_at) = '2025-11-27' AND delta_views_count > 0;
-
-Теперь обработай этот вопрос:
+Вопрос: "Сколько видео опубликовал креатор с id 8b76e572635b400c9052286a56176e03 в период с 1 ноября 2025 по 5 ноября 2025?"
+SQL: SELECT COUNT(*) FROM videos WHERE creator_id = '8b76e572635b400c9052286a56176e03' AND video_created_at::date BETWEEN '2025-11-01' AND '2025-11-05';
+Вопрос: "На сколько просмотров суммарно выросли все видео креатора с id 123 в промежутке с 10:00 до 15:00 28 ноября 2025 года?"
+SQL: SELECT SUM(delta_views_count) FROM video_snapshots JOIN videos ON video_snapshots.video_id = videos.id WHERE videos.creator_id = 123 AND DATE(video_snapshots.created_at) = '2025-11-28' AND video_snapshots.created_at::time BETWEEN '10:00:00' AND '15:00:00';
 
 Вопрос: {user_query}
 SQL:"""
